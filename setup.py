@@ -6,6 +6,7 @@ setup(
     py_modules=['mqthermo'],
     install_requires=[
         'Click',
+        'paho-mqtt',
         'pudb',
         'logzero',
     ],

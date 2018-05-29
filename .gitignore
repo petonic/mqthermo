@@ -1,2 +1,4 @@
 __pycache__/
 mqthermo.egg-info/
+build/
+dist/
