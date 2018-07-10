@@ -12,7 +12,7 @@ import logging
 import logzero
 from logzero import logger
 import datetime
-
+import time
 import click
 
 
@@ -26,6 +26,7 @@ LF_FORMAT = ('%(color)s[%(threadName)s %(levelname)1.1s %(asctime)s'
              '%(module)s:'
              '%(lineno)d]%(end_color)s %(message)s')
 formatter = logzero.LogFormatter(fmt=LF_FORMAT)
+# logzero.setup_default_logger(formatter=formatter, level=logging.DEBUG)
 logzero.setup_default_logger(formatter=formatter, level=logging.INFO)
 
 #
@@ -192,7 +193,7 @@ def get_fan_status():
 
 def switch_fan(state):
     global client
-    logger.info('Switching fan to {}'.format(state))
+    # logger.info('Switching fan to {}'.format(state))
 
     result = req_resp(TOPIC_FAN_CMD_ON[0].format(NODE),  # Topic
              '1' if state else '0', None)
@@ -232,6 +233,10 @@ def cli(temp_low, temp_high):
     glob_e = threading.Event()
     sema = glob_e
 
+    # Inialize a default start time
+    stime = datetime.datetime.now()
+
+
 
     # Set up MQTT connection
     client = mqtt.Client("mqtherm", userdata=sema)               #create new instance
@@ -269,6 +274,8 @@ def cli(temp_low, temp_high):
             continue
 
         temp = get_temp()
+        logger.debug('Temp string is {}'.format(repr(temp)))
+        # "DBG:********"; from pdb import set_trace as bp; bp()
 
         if temp == None:
             logger.error('ML: error reading temperature, restarting loop.......')
@@ -277,28 +284,47 @@ def cli(temp_low, temp_high):
         #logger.debug('Return string is {}'.format(repr(temp)))
         temp_json = json.loads(temp)
         #logger.debug('JSON of string is {}'.format(pprint.pformat(temp_json)))
-        temp = float(temp_json['StatusSNS']['DS18B20']['Temperature'])
+        try:
+            temp = float(temp_json['StatusSNS']['DS18B20']['Temperature'])
+        except KeyError as err:
+            logger.error("Key Error with returned JSON, couldn't find key: "
+                         "['StatusSNS']['DS18B20']['Temperature']:::"
+                         " {} ::: {}".format(
+                    repr(temp_json), err))
+            sys.exit(-1)
+        except TypeError as err:
+            logger.error("Type Error with returned JSON, wrong type: "
+                         "['StatusSNS']['DS18B20']['Temperature']:::"
+                         " {} ::: {}".format(
+                    repr(temp_json), err))
+            sys.exit(-1)
         logger.debug('Temp is {}'.format(repr(temp)))
         # temp = float(temp)
 
         logger.debug('Fan status is {}'.format(fan_running))
-        print('{}: FanState = {}, low = {}, high = {}, curr = {}'.format(
-                datetime.datetime.now(), fan_running, temp_low, temp_high, temp))
+        print('\t{} -- FanState = {}, low = {}, high = {}, curr = {}'.format(
+                datetime.datetime.now().strftime('%H:%M:%S'), fan_running, temp_low, temp_high, temp))
         if fan_running:
             logger.debug('==== FAN is RUNNING')
             if temp <= temp_low:
-                logger.info('Turning fan off, curr temp is %s, limit %s',
-                    repr(temp), repr(temp_low))
+                ctime = datetime.datetime.now()
+                dtime = ctime - stime
+                logger.info('Turning fan off, curr temp is %s, limit %s, duration was %-2.2d:%-2.2d',
+                    repr(temp), repr(temp_low), int(dtime.seconds/60), int(dtime.seconds % 60))
+                stime = ctime
                 switch_fan(False)
             else:
                 logger.debug('Keeping Fan on at %s, still under limit of %s',
                     repr(temp), repr(temp_low))
         else:
             logger.debug('==== FAN IS NOT RUNNING')
-
             if temp >= temp_high:
-                logger.info('Turning fan on, curr temp is %s, limit %s',
-                    repr(temp), repr(temp_high))
+                ctime = datetime.datetime.now()
+                dtime = ctime - stime
+                # %M%S
+                logger.info('Turning fan on, curr temp is %s, limit %s, duration was %-2.2d:%-2.2d',
+                    repr(temp), repr(temp_low), int(dtime.seconds/60), int(dtime.seconds % 60))
+                stime = ctime
                 switch_fan(True)
             else:
                 logger.debug('Keeping Fan off at %s, still under limit of %s',
